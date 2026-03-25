@@ -6,6 +6,7 @@ from dataclasses import asdict
 
 from ix_dsat.claims import SCOPE, SYSTEM_NAME, SYSTEM_SHORT_NAME
 from ix_dsat.errors import ScenarioValidationError
+from ix_dsat.replay import replay_scenario
 from ix_dsat.scenario import load_scenario
 from ix_dsat.version import __version__
 
@@ -33,6 +34,18 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Validate a scenario JSON file against the DSAT contract.",
     )
+    parser.add_argument(
+        "--replay-scenario",
+        metavar="PATH",
+        help="Execute a deterministic replay for a validated scenario JSON file.",
+    )
+    parser.add_argument(
+        "--sample-every",
+        metavar="N",
+        type=int,
+        default=1,
+        help="For replay, keep every Nth tick as a sample. Defaults to 1.",
+    )
     return parser
 
 
@@ -51,6 +64,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"scenario validation failed: {exc}")
             return 2
         print(json.dumps(scenario.summary(), indent=2))
+        return 0
+
+    if args.replay_scenario:
+        try:
+            scenario = load_scenario(args.replay_scenario)
+            result = replay_scenario(scenario, sample_every_n_ticks=args.sample_every)
+        except ScenarioValidationError as exc:
+            print(f"scenario replay failed: {exc}")
+            return 2
+        print(json.dumps(result.summary(), indent=2))
         return 0
 
     payload = {
