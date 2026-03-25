@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from ix_dsat.cli import main
 
 
@@ -15,3 +17,12 @@ def test_cli_json(capsys) -> None:
     assert '"system_name": "IX-Deep-Space-Anomaly-Triage"' in captured.out
     assert '"system_short_name": "DSAT"' in captured.out
     assert '"mission"' in captured.out
+
+
+def test_cli_validate_scenario(capsys) -> None:
+    scenario_path = Path("scenarios/examples/link_state_pointing_drift.json")
+    rc = main(["--validate-scenario", str(scenario_path)])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert '"scenario_id": "comm-link-pointing-drift-001"' in captured.out
+    assert '"expected_cause_class": "link_state_degradation"' in captured.out
