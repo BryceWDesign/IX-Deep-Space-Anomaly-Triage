@@ -1,0 +1,131 @@
+{
+  "schema_version": "1.0.0",
+  "scenario_id": "comm-link-pointing-drift-001",
+  "title": "Link-state degradation under increasing pointing drift",
+  "description": "Deterministic seeded-fault scenario for communication-adjacent anomaly triage. The scenario begins nominally, then experiences progressive pointing drift, packet loss, and stale star-tracker updates. Expected behavior is a link-state degradation classification with bounded recovery guidance.",
+  "metadata": {
+    "domain": "deep_space_operations",
+    "subsystem": "comm_link_state_and_vehicle_state_trust",
+    "author": "Bryce Lovell",
+    "tags": [
+      "communication",
+      "pointing",
+      "delay_tolerant_ops",
+      "fault_injection",
+      "triage"
+    ]
+  },
+  "timeline": {
+    "duration_s": 180,
+    "tick_hz": 2
+  },
+  "initial_state": {
+    "comm_window_open": true,
+    "line_confidence": 0.96,
+    "vehicle_mode": "science_downlink",
+    "telemetry_freshness_s": 0.4,
+    "pointing_error_deg": 0.12,
+    "clock_bias_ms": 1.8
+  },
+  "telemetry_channels": [
+    {
+      "name": "line_confidence",
+      "kind": "scalar",
+      "units": "ratio",
+      "nominal_min": 0.0,
+      "nominal_max": 1.0,
+      "initial_value": 0.96
+    },
+    {
+      "name": "pointing_error_deg",
+      "kind": "scalar",
+      "units": "deg",
+      "nominal_min": 0.0,
+      "nominal_max": 2.0,
+      "initial_value": 0.12
+    },
+    {
+      "name": "telemetry_freshness_s",
+      "kind": "scalar",
+      "units": "s",
+      "nominal_min": 0.0,
+      "nominal_max": 5.0,
+      "initial_value": 0.4
+    },
+    {
+      "name": "link_mode",
+      "kind": "enum",
+      "units": "state",
+      "nominal_min": 0.0,
+      "nominal_max": 0.0,
+      "initial_value": "high_gain"
+    },
+    {
+      "name": "comm_window_open",
+      "kind": "boolean",
+      "units": "flag",
+      "nominal_min": 0.0,
+      "nominal_max": 1.0,
+      "initial_value": true
+    }
+  ],
+  "faults": [
+    {
+      "fault_id": "fault-001",
+      "fault_type": "pointing_drift",
+      "start_s": 35.0,
+      "end_s": 160.0,
+      "target": "pointing_error_deg",
+      "severity": 0.67,
+      "parameters": {
+        "drift_rate_deg_per_s": 0.045,
+        "onset_profile": "ramp"
+      }
+    },
+    {
+      "fault_id": "fault-002",
+      "fault_type": "packet_loss",
+      "start_s": 70.0,
+      "end_s": 170.0,
+      "target": "downlink_stream",
+      "severity": 0.55,
+      "parameters": {
+        "loss_ratio": 0.22,
+        "burst_length_packets": 8
+      }
+    },
+    {
+      "fault_id": "fault-003",
+      "fault_type": "sensor_stale",
+      "start_s": 92.0,
+      "end_s": 140.0,
+      "target": "star_tracker_update_age",
+      "severity": 0.41,
+      "parameters": {
+        "age_growth_s_per_s": 0.8
+      }
+    }
+  ],
+  "expected": {
+    "cause_class": "link_state_degradation",
+    "minimum_confidence_floor": 0.24,
+    "allowed_actions": [
+      "hold_current_pointing",
+      "request_reacquisition",
+      "switch_to_low_rate_link",
+      "shed_noncritical_traffic",
+      "await_fresh_state_estimate"
+    ],
+    "blocked_actions": [
+      "freeze_high_risk_recovery",
+      "enter_safe_comm_posture"
+    ],
+    "must_emit_events": [
+      "scenario_started",
+      "anomaly_detected",
+      "triage_emitted",
+      "confidence_degraded",
+      "recovery_action_bounded"
+    ]
+  }
+}
