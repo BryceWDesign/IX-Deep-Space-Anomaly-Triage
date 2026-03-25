@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ix-dsat/schemas/scenario.schema.json",
+  "title": "IX-Deep-Space-Anomaly-Triage Scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scenario_id",
+    "title",
+    "description",
+    "metadata",
+    "timeline",
+    "initial_state",
+    "telemetry_channels",
+    "faults",
+    "expected"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "scenario_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "subsystem", "author", "tags"],
+      "properties": {
+        "domain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subsystem": {
+          "type": "string",
+          "minLength": 1
+        },
+        "author": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tags": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "timeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duration_s", "tick_hz"],
+      "properties": {
+        "duration_s": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tick_hz": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "initial_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "comm_window_open",
+        "line_confidence",
+        "vehicle_mode",
+        "telemetry_freshness_s",
+        "pointing_error_deg",
+        "clock_bias_ms"
+      ],
+      "properties": {
+        "comm_window_open": {
+          "type": "boolean"
+        },
+        "line_confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "vehicle_mode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "telemetry_freshness_s": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 3600.0
+        },
+        "pointing_error_deg": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 180.0
+        },
+        "clock_bias_ms": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 60000.0
+        }
+      }
+    },
+    "telemetry_channels": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "kind",
+          "units",
+          "nominal_min",
+          "nominal_max",
+          "initial_value"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["scalar", "boolean", "enum"]
+          },
+          "units": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nominal_min": {
+            "type": "number"
+          },
+          "nominal_max": {
+            "type": "number"
+          },
+          "initial_value": {}
+        }
+      }
+    },
+    "faults": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "fault_id",
+          "fault_type",
+          "start_s",
+          "target",
+          "severity",
+          "parameters"
+        ],
+        "properties": {
+          "fault_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fault_type": {
+            "type": "string",
+            "enum": [
+              "packet_loss",
+              "pointing_drift",
+              "clock_bias_growth",
+              "sensor_stale",
+              "sensor_bias",
+              "dropout",
+              "mode_mismatch"
+            ]
+          },
+          "start_s": {
+            "type": "number",
+            "minimum": 0.0
+          },
+          "end_s": {
+            "type": ["number", "null"],
+            "minimum": 0.0
+          },
+          "target": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0
+          },
+          "parameters": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cause_class",
+        "minimum_confidence_floor",
+        "allowed_actions",
+        "blocked_actions",
+        "must_emit_events"
+      ],
+      "properties": {
+        "cause_class": {
+          "type": "string",
+          "enum": [
+            "link_state_degradation",
+            "pointing_state_inconsistency",
+            "timing_drift_or_stale_data",
+            "sensor_disagreement_or_corruption",
+            "recovery_attempt_risk_escalation"
+          ]
+        },
+        "minimum_confidence_floor": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "allowed_actions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "hold_current_pointing",
+              "request_reacquisition",
+              "switch_to_low_rate_link",
+              "freeze_high_risk_recovery",
+              "shed_noncritical_traffic",
+              "enter_safe_comm_posture",
+              "await_fresh_state_estimate"
+            ]
+          }
+        },
+        "blocked_actions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "hold_current_pointing",
+              "request_reacquisition",
+              "switch_to_low_rate_link",
+              "freeze_high_risk_recovery",
+              "shed_noncritical_traffic",
+              "enter_safe_comm_posture",
+              "await_fresh_state_estimate"
+            ]
+          }
+        },
+        "must_emit_events": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}
