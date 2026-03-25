@@ -26,3 +26,13 @@ def test_cli_validate_scenario(capsys) -> None:
     assert rc == 0
     assert '"scenario_id": "comm-link-pointing-drift-001"' in captured.out
     assert '"expected_cause_class": "link_state_degradation"' in captured.out
+
+
+def test_cli_replay_scenario(capsys) -> None:
+    scenario_path = Path("scenarios/examples/link_state_pointing_drift.json")
+    rc = main(["--replay-scenario", str(scenario_path), "--sample-every", "10"])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert '"scenario_id": "comm-link-pointing-drift-001"' in captured.out
+    assert '"anomaly_detected": true' in captured.out
+    assert '"cause_class_hint": "link_state_degradation"' in captured.out
