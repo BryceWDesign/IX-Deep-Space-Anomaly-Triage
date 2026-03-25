@@ -5,6 +5,8 @@ import json
 from dataclasses import asdict
 
 from ix_dsat.claims import SCOPE, SYSTEM_NAME, SYSTEM_SHORT_NAME
+from ix_dsat.errors import ScenarioValidationError
+from ix_dsat.scenario import load_scenario
 from ix_dsat.version import __version__
 
 
@@ -12,7 +14,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ix-dsat",
         description=(
-            "IX-Deep-Space-Anomaly-Triage: scope and claims interface for a "
+            "IX-Deep-Space-Anomaly-Triage: scope and scenario interface for a "
             "simulation-first onboard anomaly-triage scaffold."
         ),
     )
@@ -26,6 +28,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Emit the scope posture as JSON.",
     )
+    parser.add_argument(
+        "--validate-scenario",
+        metavar="PATH",
+        help="Validate a scenario JSON file against the DSAT contract.",
+    )
     return parser
 
 
@@ -35,6 +42,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.version:
         print(__version__)
+        return 0
+
+    if args.validate_scenario:
+        try:
+            scenario = load_scenario(args.validate_scenario)
+        except ScenarioValidationError as exc:
+            print(f"scenario validation failed: {exc}")
+            return 2
+        print(json.dumps(scenario.summary(), indent=2))
         return 0
 
     payload = {
