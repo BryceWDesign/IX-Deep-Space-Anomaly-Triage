@@ -6,6 +6,7 @@ from dataclasses import asdict
 
 from ix_dsat.claims import SCOPE, SYSTEM_NAME, SYSTEM_SHORT_NAME
 from ix_dsat.errors import ScenarioValidationError
+from ix_dsat.gate import gate_actions
 from ix_dsat.replay import replay_scenario
 from ix_dsat.scenario import load_scenario
 from ix_dsat.sentinel import scan_replay
@@ -52,11 +53,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run replay, health sentinel, and bounded anomaly triage for a scenario JSON file.",
     )
     parser.add_argument(
+        "--gate-scan",
+        metavar="PATH",
+        help="Run replay, health sentinel, triage, and safe-action gate for a scenario JSON file.",
+    )
+    parser.add_argument(
         "--sample-every",
         metavar="N",
         type=int,
         default=1,
-        help="For replay, sentinel scan, or triage scan, keep every Nth tick as a sample. Defaults to 1.",
+        help="For replay, sentinel scan, triage scan, or gate scan, keep every Nth tick as a sample. Defaults to 1.",
     )
     return parser
 
@@ -107,6 +113,19 @@ def main(argv: list[str] | None = None) -> int:
             report = triage_replay(result, sentinel)
         except ScenarioValidationError as exc:
             print(f"triage scan failed: {exc}")
+            return 2
+        print(json.dumps(report.summary(), indent=2))
+        return 0
+
+    if args.gate_scan:
+        try:
+            scenario = load_scenario(args.gate_scan)
+            result = replay_scenario(scenario, sample_every_n_ticks=args.sample_every)
+            sentinel = scan_replay(result)
+            triage = triage_replay(result, sentinel)
+            report = gate_actions(scenario, result, sentinel, triage)
+        except ScenarioValidationError as exc:
+            print(f"gate scan failed: {exc}")
             return 2
         print(json.dumps(report.summary(), indent=2))
         return 0
