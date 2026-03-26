@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from ix_dsat.faults import FaultEffectAggregate, FaultObservation, resolve_fault_effects
 from ix_dsat.scenario import FaultInjection, Scenario
 
 
@@ -108,19 +109,7 @@ def _active_faults(scenario: Scenario, time_s: float) -> tuple[FaultInjection, .
         ends = fault.end_s is None or time_s <= fault.end_s
         if starts and ends:
             active.append(fault)
-    return tuple(sorted(active, key=lambda item: (item.start_s, item.fault_id)))
-
-
-def _fresh_fault_effects() -> dict[str, Any]:
-    return {
-        "packet_loss_ratio": 0.0,
-        "sensor_bias_level": 0.0,
-        "mode_mismatch_level": 0.0,
-        "dropout_level": 0.0,
-        "stale_growth_s_per_s": 0.0,
-        "pointing_drift_deg_per_s": 0.0,
-        "clock_bias_growth_ms_per_s": 0.0,
-    }
+    return tuple(sorted(active, key=lambda item: (item.start_s, item.fault_id))))
 
 
 def _sync_named_channels(state: dict[str, Any], channels: dict[str, Any]) -> None:
@@ -153,7 +142,9 @@ def _infer_cause_class(active_faults: tuple[FaultInjection, ...], state: dict[st
 
 
 def _compute_line_confidence(
-    baseline: float, state: dict[str, Any], effects: dict[str, Any]
+    baseline: float,
+    state: dict[str, Any],
+    effects: FaultEffectAggregate,
 ) -> float:
     pointing_penalty = min(0.72, max(0.0, state["pointing_error_deg"] - 0.25) * 0.18)
     freshness_penalty = min(
@@ -161,10 +152,10 @@ def _compute_line_confidence(
         max(0.0, state["telemetry_freshness_s"] - 0.75) * 0.012,
     )
     clock_penalty = min(0.12, max(0.0, state["clock_bias_ms"] - 2.0) * 0.0006)
-    packet_penalty = min(0.25, effects["packet_loss_ratio"] * 0.6)
-    bias_penalty = min(0.20, effects["sensor_bias_level"] * 0.20)
-    mismatch_penalty = min(0.18, effects["mode_mismatch_level"] * 0.18)
-    dropout_penalty = 0.45 if effects["dropout_level"] > 0.0 else 0.0
+    packet_penalty = min(0.25, effects.packet_loss_ratio * 0.6)
+    bias_penalty = min(0.20, effects.sensor_bias_level * 0.20)
+    mismatch_penalty = min(0.18, effects.mode_mismatch_level * 0.18)
+    dropout_penalty = 0.45 if effects.dropout_level > 0.0 else 0.0
     closed_window_penalty = 0.22 if not state["comm_window_open"] else 0.0
 
     confidence = baseline
@@ -185,40 +176,18 @@ def _step_state(
     state: dict[str, Any],
     dt_s: float,
     active_faults: tuple[FaultInjection, ...],
-) -> dict[str, Any]:
-    effects = _fresh_fault_effects()
-
-    for fault in active_faults:
-        if fault.fault_type == "pointing_drift":
-            rate = float(fault.parameters.get("drift_rate_deg_per_s", 0.0))
-            effects["pointing_drift_deg_per_s"] += rate * fault.severity
-        elif fault.fault_type == "packet_loss":
-            loss_ratio = float(fault.parameters.get("loss_ratio", 0.0))
-            effects["packet_loss_ratio"] = max(
-                effects["packet_loss_ratio"], loss_ratio * fault.severity
-            )
-        elif fault.fault_type == "sensor_stale":
-            growth = float(fault.parameters.get("age_growth_s_per_s", 0.0))
-            effects["stale_growth_s_per_s"] += growth * fault.severity
-        elif fault.fault_type == "clock_bias_growth":
-            growth = float(fault.parameters.get("bias_growth_ms_per_s", 0.0))
-            effects["clock_bias_growth_ms_per_s"] += growth * fault.severity
-        elif fault.fault_type == "sensor_bias":
-            effects["sensor_bias_level"] = max(effects["sensor_bias_level"], fault.severity)
-        elif fault.fault_type == "dropout":
-            effects["dropout_level"] = max(effects["dropout_level"], fault.severity)
-        elif fault.fault_type == "mode_mismatch":
-            effects["mode_mismatch_level"] = max(effects["mode_mismatch_level"], fault.severity)
+) -> tuple[FaultEffectAggregate, tuple[FaultObservation, ...]]:
+    effects, observations = resolve_fault_effects(active_faults)
 
     state["pointing_error_deg"] = _clamp(
-        state["pointing_error_deg"] + effects["pointing_drift_deg_per_s"] * dt_s,
+        state["pointing_error_deg"] + effects.pointing_drift_deg_per_s * dt_s,
         0.0,
         180.0,
     )
 
-    if effects["stale_growth_s_per_s"] > 0.0:
+    if effects.stale_growth_s_per_s > 0.0:
         state["telemetry_freshness_s"] = _clamp(
-            state["telemetry_freshness_s"] + effects["stale_growth_s_per_s"] * dt_s,
+            state["telemetry_freshness_s"] + effects.stale_growth_s_per_s * dt_s,
             0.0,
             3600.0,
         )
@@ -229,9 +198,9 @@ def _step_state(
             state["telemetry_freshness_s"] - (2.0 * dt_s),
         )
 
-    if effects["clock_bias_growth_ms_per_s"] > 0.0:
+    if effects.clock_bias_growth_ms_per_s > 0.0:
         state["clock_bias_ms"] = _clamp(
-            state["clock_bias_ms"] + effects["clock_bias_growth_ms_per_s"] * dt_s,
+            state["clock_bias_ms"] + effects.clock_bias_growth_ms_per_s * dt_s,
             0.0,
             60000.0,
         )
@@ -242,12 +211,12 @@ def _step_state(
             state["clock_bias_ms"] - (5.0 * dt_s),
         )
 
-    if effects["dropout_level"] >= 0.5:
+    if effects.dropout_level >= 0.5:
         state["comm_window_open"] = False
         state["link_mode"] = "dropout"
     else:
         state["comm_window_open"] = scenario.initial_state.comm_window_open
-        if effects["packet_loss_ratio"] >= 0.10:
+        if effects.packet_loss_ratio >= 0.10:
             state["link_mode"] = "degraded"
         else:
             state["link_mode"] = "nominal"
@@ -259,7 +228,7 @@ def _step_state(
     )
 
     _sync_named_channels(state=state, channels=state["channels"])
-    return effects
+    return effects, observations
 
 
 def replay_scenario(scenario: Scenario, sample_every_n_ticks: int = 1) -> ReplayResult:
@@ -316,14 +285,30 @@ def replay_scenario(scenario: Scenario, sample_every_n_ticks: int = 1) -> Replay
         active_faults = _active_faults(scenario, time_s)
 
         if tick_index > 0:
-            effects = _step_state(
+            effects, observations = _step_state(
                 scenario=scenario,
                 state=state,
                 dt_s=dt_s,
                 active_faults=active_faults,
             )
         else:
-            effects = _fresh_fault_effects()
+            effects, observations = resolve_fault_effects(active_faults)
+
+        if observations:
+            events.append(
+                ReplayEvent(
+                    time_s=time_s,
+                    event_type="fault_effects_resolved",
+                    severity=max(obs.severity for obs in observations),
+                    message="Seeded fault library resolved active effects.",
+                    details={
+                        "fault_count": len(observations),
+                        "fault_ids": [obs.fault_id for obs in observations],
+                        "fault_types": [obs.fault_type for obs in observations],
+                        "effects": effects.to_dict(),
+                    },
+                )
+            )
 
         minimum_line_confidence = min(minimum_line_confidence, state["line_confidence"])
 
@@ -331,7 +316,7 @@ def replay_scenario(scenario: Scenario, sample_every_n_ticks: int = 1) -> Replay
             state["line_confidence"] < 0.78
             or state["pointing_error_deg"] > 1.5
             or state["telemetry_freshness_s"] > 6.0
-            or effects["dropout_level"] > 0.0
+            or effects.dropout_level > 0.0
         )
 
         if anomaly_triggered and not anomaly_detected:
