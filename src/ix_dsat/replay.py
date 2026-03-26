@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from ix_dsat.faults import FaultEffectAggregate, FaultObservation, resolve_fault_effects
+from ix_dsat.line_confidence import assess_line_confidence, build_inputs
 from ix_dsat.scenario import FaultInjection, Scenario
 
 
@@ -32,6 +33,8 @@ class ReplaySample:
 
     time_s: float
     line_confidence: float
+    line_confidence_status: str
+    dominant_confidence_factors: tuple[str, ...]
     telemetry_freshness_s: float
     pointing_error_deg: float
     clock_bias_ms: float
@@ -141,42 +144,13 @@ def _infer_cause_class(active_faults: tuple[FaultInjection, ...], state: dict[st
     return "link_state_degradation"
 
 
-def _compute_line_confidence(
-    baseline: float,
-    state: dict[str, Any],
-    effects: FaultEffectAggregate,
-) -> float:
-    pointing_penalty = min(0.72, max(0.0, state["pointing_error_deg"] - 0.25) * 0.18)
-    freshness_penalty = min(
-        0.18,
-        max(0.0, state["telemetry_freshness_s"] - 0.75) * 0.012,
-    )
-    clock_penalty = min(0.12, max(0.0, state["clock_bias_ms"] - 2.0) * 0.0006)
-    packet_penalty = min(0.25, effects.packet_loss_ratio * 0.6)
-    bias_penalty = min(0.20, effects.sensor_bias_level * 0.20)
-    mismatch_penalty = min(0.18, effects.mode_mismatch_level * 0.18)
-    dropout_penalty = 0.45 if effects.dropout_level > 0.0 else 0.0
-    closed_window_penalty = 0.22 if not state["comm_window_open"] else 0.0
-
-    confidence = baseline
-    confidence -= pointing_penalty
-    confidence -= freshness_penalty
-    confidence -= clock_penalty
-    confidence -= packet_penalty
-    confidence -= bias_penalty
-    confidence -= mismatch_penalty
-    confidence -= dropout_penalty
-    confidence -= closed_window_penalty
-    return _clamp(confidence, 0.0, 1.0)
-
-
 def _step_state(
     *,
     scenario: Scenario,
     state: dict[str, Any],
     dt_s: float,
     active_faults: tuple[FaultInjection, ...],
-) -> tuple[FaultEffectAggregate, tuple[FaultObservation, ...]]:
+) -> tuple[FaultEffectAggregate, tuple[FaultObservation, ...], dict[str, Any]]:
     effects, observations = resolve_fault_effects(active_faults)
 
     state["pointing_error_deg"] = _clamp(
@@ -221,14 +195,20 @@ def _step_state(
         else:
             state["link_mode"] = "nominal"
 
-    state["line_confidence"] = _compute_line_confidence(
-        baseline=scenario.initial_state.line_confidence,
-        state=state,
-        effects=effects,
+    assessment = assess_line_confidence(
+        build_inputs(
+            baseline_confidence=scenario.initial_state.line_confidence,
+            pointing_error_deg=state["pointing_error_deg"],
+            telemetry_freshness_s=state["telemetry_freshness_s"],
+            clock_bias_ms=state["clock_bias_ms"],
+            comm_window_open=state["comm_window_open"],
+            effects=effects,
+        )
     )
+    state["line_confidence"] = assessment.confidence
 
     _sync_named_channels(state=state, channels=state["channels"])
-    return effects, observations
+    return effects, observations, assessment.to_dict()
 
 
 def replay_scenario(scenario: Scenario, sample_every_n_ticks: int = 1) -> ReplayResult:
@@ -260,6 +240,17 @@ def replay_scenario(scenario: Scenario, sample_every_n_ticks: int = 1) -> Replay
     }
     _sync_named_channels(state=state, channels=state["channels"])
 
+    initial_assessment = assess_line_confidence(
+        build_inputs(
+            baseline_confidence=scenario.initial_state.line_confidence,
+            pointing_error_deg=state["pointing_error_deg"],
+            telemetry_freshness_s=state["telemetry_freshness_s"],
+            clock_bias_ms=state["clock_bias_ms"],
+            comm_window_open=state["comm_window_open"],
+            effects=FaultEffectAggregate(),
+        )
+    )
+
     events: list[ReplayEvent] = [
         ReplayEvent(
             time_s=0.0,
@@ -285,7 +276,7 @@ def replay_scenario(scenario: Scenario, sample_every_n_ticks: int = 1) -> Replay
         active_faults = _active_faults(scenario, time_s)
 
         if tick_index > 0:
-            effects, observations = _step_state(
+            effects, observations, confidence_assessment = _step_state(
                 scenario=scenario,
                 state=state,
                 dt_s=dt_s,
@@ -293,6 +284,7 @@ def replay_scenario(scenario: Scenario, sample_every_n_ticks: int = 1) -> Replay
             )
         else:
             effects, observations = resolve_fault_effects(active_faults)
+            confidence_assessment = initial_assessment.to_dict()
 
         if observations:
             events.append(
@@ -307,6 +299,17 @@ def replay_scenario(scenario: Scenario, sample_every_n_ticks: int = 1) -> Replay
                         "fault_types": [obs.fault_type for obs in observations],
                         "effects": effects.to_dict(),
                     },
+                )
+            )
+
+        if tick_index == 0 or active_faults:
+            events.append(
+                ReplayEvent(
+                    time_s=time_s,
+                    event_type="line_confidence_assessed",
+                    severity=round(1.0 - state["line_confidence"], 6),
+                    message="Line-confidence engine assessed bounded trust in the current line state.",
+                    details=confidence_assessment,
                 )
             )
 
@@ -386,6 +389,10 @@ def replay_scenario(scenario: Scenario, sample_every_n_ticks: int = 1) -> Replay
                 ReplaySample(
                     time_s=time_s,
                     line_confidence=round(state["line_confidence"], 6),
+                    line_confidence_status=str(confidence_assessment["status"]),
+                    dominant_confidence_factors=tuple(
+                        str(item) for item in confidence_assessment["dominant_factors"]
+                    ),
                     telemetry_freshness_s=round(state["telemetry_freshness_s"], 6),
                     pointing_error_deg=round(state["pointing_error_deg"], 6),
                     clock_bias_ms=round(state["clock_bias_ms"], 6),
@@ -402,6 +409,8 @@ def replay_scenario(scenario: Scenario, sample_every_n_ticks: int = 1) -> Replay
         "comm_window_open": state["comm_window_open"],
         "vehicle_mode": state["vehicle_mode"],
         "link_mode": state["link_mode"],
+        "line_confidence_status": samples[-1].line_confidence_status if samples else "nominal",
+        "dominant_confidence_factors": list(samples[-1].dominant_confidence_factors) if samples else [],
     }
 
     return ReplayResult(
