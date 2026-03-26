@@ -8,11 +8,13 @@ from ix_dsat.claims import SCOPE, SYSTEM_NAME, SYSTEM_SHORT_NAME
 from ix_dsat.errors import ScenarioValidationError
 from ix_dsat.gate import gate_actions
 from ix_dsat.ledger import build_evidence_ledger
+from ix_dsat.metrics import compute_metrics
 from ix_dsat.replay import replay_scenario
 from ix_dsat.scenario import load_scenario
 from ix_dsat.sentinel import scan_replay
 from ix_dsat.sync_queue import build_sync_queue
 from ix_dsat.triage import triage_replay
+from ix_dsat.validation import validate_run
 from ix_dsat.version import __version__
 
 
@@ -70,6 +72,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run the full DSAT chain and emit a delay-tolerant sync queue summary.",
     )
     parser.add_argument(
+        "--metrics-scan",
+        metavar="PATH",
+        help="Run the full DSAT chain and emit bounded validation metrics.",
+    )
+    parser.add_argument(
+        "--validate-run",
+        metavar="PATH",
+        help="Run the full DSAT chain and emit an end-to-end pass/fail validation report.",
+    )
+    parser.add_argument(
         "--sample-every",
         metavar="N",
         type=int,
@@ -85,7 +97,11 @@ def _run_full_chain(path: str, sample_every: int):
     sentinel = scan_replay(replay)
     triage = triage_replay(replay, sentinel)
     gate = gate_actions(scenario, replay, sentinel, triage)
-    return scenario, replay, sentinel, triage, gate
+    ledger = build_evidence_ledger(scenario, replay, sentinel, triage, gate)
+    queue = build_sync_queue(ledger)
+    metrics = compute_metrics(scenario, replay, sentinel, triage, gate, ledger, queue)
+    validation = validate_run(metrics, gate, queue)
+    return scenario, replay, sentinel, triage, gate, ledger, queue, metrics, validation
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -140,22 +156,20 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.gate_scan:
         try:
-            scenario, replay, sentinel, triage, gate = _run_full_chain(
+            _scenario, _replay, _sentinel, _triage, gate, _ledger, _queue, _metrics, _validation = _run_full_chain(
                 args.gate_scan, args.sample_every
             )
         except ScenarioValidationError as exc:
             print(f"gate scan failed: {exc}")
             return 2
-        _ = scenario, replay, sentinel, triage
         print(json.dumps(gate.summary(), indent=2))
         return 0
 
     if args.ledger_scan:
         try:
-            scenario, replay, sentinel, triage, gate = _run_full_chain(
+            _scenario, _replay, _sentinel, _triage, _gate, ledger, _queue, _metrics, _validation = _run_full_chain(
                 args.ledger_scan, args.sample_every
             )
-            ledger = build_evidence_ledger(scenario, replay, sentinel, triage, gate)
         except ScenarioValidationError as exc:
             print(f"ledger scan failed: {exc}")
             return 2
@@ -164,15 +178,35 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.sync_queue_scan:
         try:
-            scenario, replay, sentinel, triage, gate = _run_full_chain(
+            _scenario, _replay, _sentinel, _triage, _gate, _ledger, queue, _metrics, _validation = _run_full_chain(
                 args.sync_queue_scan, args.sample_every
             )
-            ledger = build_evidence_ledger(scenario, replay, sentinel, triage, gate)
-            queue = build_sync_queue(ledger)
         except ScenarioValidationError as exc:
             print(f"sync queue scan failed: {exc}")
             return 2
         print(json.dumps(queue.summary(), indent=2))
+        return 0
+
+    if args.metrics_scan:
+        try:
+            _scenario, _replay, _sentinel, _triage, _gate, _ledger, _queue, metrics, _validation = _run_full_chain(
+                args.metrics_scan, args.sample_every
+            )
+        except ScenarioValidationError as exc:
+            print(f"metrics scan failed: {exc}")
+            return 2
+        print(json.dumps(metrics.summary(), indent=2))
+        return 0
+
+    if args.validate_run:
+        try:
+            _scenario, _replay, _sentinel, _triage, _gate, _ledger, _queue, _metrics, validation = _run_full_chain(
+                args.validate_run, args.sample_every
+            )
+        except ScenarioValidationError as exc:
+            print(f"run validation failed: {exc}")
+            return 2
+        print(json.dumps(validation.summary(), indent=2))
         return 0
 
     payload = {
