@@ -15,6 +15,7 @@ def test_replay_emits_expected_backbone_events() -> None:
 
     event_types = [event.event_type for event in result.events]
     assert "scenario_started" in event_types
+    assert "fault_effects_resolved" in event_types
     assert "anomaly_detected" in event_types
     assert "triage_emitted" in event_types
     assert "confidence_degraded" in event_types
@@ -40,3 +41,13 @@ def test_replay_sample_stride_changes_sample_count_only() -> None:
     assert dense.tick_count == sparse.tick_count
     assert len(dense.samples) > len(sparse.samples)
     assert dense.cause_class_hint == sparse.cause_class_hint
+
+
+def test_replay_handles_timing_drift_or_stale_data_path() -> None:
+    scenario = load_scenario("scenarios/examples/timing_bias_growth.json")
+    result = replay_scenario(scenario, sample_every_n_ticks=10)
+
+    assert result.anomaly_detected is True
+    assert result.cause_class_hint == "timing_drift_or_stale_data"
+    assert result.final_state["clock_bias_ms"] > scenario.initial_state.clock_bias_ms
+    assert result.final_state["telemetry_freshness_s"] > scenario.initial_state.telemetry_freshness_s
