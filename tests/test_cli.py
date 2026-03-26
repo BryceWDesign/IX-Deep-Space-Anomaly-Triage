@@ -46,3 +46,12 @@ def test_cli_sentinel_scan(capsys) -> None:
     assert '"scenario_id": "comm-link-pointing-drift-001"' in captured.out
     assert '"overall_status": "critical"' in captured.out
     assert '"recommended_posture": "enter_bounded_recovery_only"' in captured.out
+
+
+def test_cli_triage_scan(capsys) -> None:
+    scenario_path = Path("scenarios/examples/timing_bias_growth.json")
+    rc = main(["--triage-scan", str(scenario_path), "--sample-every", "10"])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert '"scenario_id": "comm-timing-bias-growth-001"' in captured.out
+    assert '"primary_cause_class": "timing_drift_or_stale_data"' in captured.out
