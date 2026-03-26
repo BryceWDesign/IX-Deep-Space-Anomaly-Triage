@@ -9,6 +9,7 @@ from ix_dsat.errors import ScenarioValidationError
 from ix_dsat.replay import replay_scenario
 from ix_dsat.scenario import load_scenario
 from ix_dsat.sentinel import scan_replay
+from ix_dsat.triage import triage_replay
 from ix_dsat.version import __version__
 
 
@@ -46,11 +47,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run the health sentinel over a deterministic replay for a scenario JSON file.",
     )
     parser.add_argument(
+        "--triage-scan",
+        metavar="PATH",
+        help="Run replay, health sentinel, and bounded anomaly triage for a scenario JSON file.",
+    )
+    parser.add_argument(
         "--sample-every",
         metavar="N",
         type=int,
         default=1,
-        help="For replay or sentinel scan, keep every Nth tick as a sample. Defaults to 1.",
+        help="For replay, sentinel scan, or triage scan, keep every Nth tick as a sample. Defaults to 1.",
     )
     return parser
 
@@ -89,6 +95,18 @@ def main(argv: list[str] | None = None) -> int:
             report = scan_replay(result)
         except ScenarioValidationError as exc:
             print(f"sentinel scan failed: {exc}")
+            return 2
+        print(json.dumps(report.summary(), indent=2))
+        return 0
+
+    if args.triage_scan:
+        try:
+            scenario = load_scenario(args.triage_scan)
+            result = replay_scenario(scenario, sample_every_n_ticks=args.sample_every)
+            sentinel = scan_replay(result)
+            report = triage_replay(result, sentinel)
+        except ScenarioValidationError as exc:
+            print(f"triage scan failed: {exc}")
             return 2
         print(json.dumps(report.summary(), indent=2))
         return 0
