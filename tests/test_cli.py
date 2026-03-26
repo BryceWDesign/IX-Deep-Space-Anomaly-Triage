@@ -36,3 +36,13 @@ def test_cli_replay_scenario(capsys) -> None:
     assert '"scenario_id": "comm-link-pointing-drift-001"' in captured.out
     assert '"anomaly_detected": true' in captured.out
     assert '"cause_class_hint": "link_state_degradation"' in captured.out
+
+
+def test_cli_sentinel_scan(capsys) -> None:
+    scenario_path = Path("scenarios/examples/link_state_pointing_drift.json")
+    rc = main(["--sentinel-scan", str(scenario_path), "--sample-every", "10"])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert '"scenario_id": "comm-link-pointing-drift-001"' in captured.out
+    assert '"overall_status": "critical"' in captured.out
+    assert '"recommended_posture": "enter_bounded_recovery_only"' in captured.out
