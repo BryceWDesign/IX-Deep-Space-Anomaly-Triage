@@ -16,6 +16,7 @@ def test_replay_emits_expected_backbone_events() -> None:
     event_types = [event.event_type for event in result.events]
     assert "scenario_started" in event_types
     assert "fault_effects_resolved" in event_types
+    assert "line_confidence_assessed" in event_types
     assert "anomaly_detected" in event_types
     assert "triage_emitted" in event_types
     assert "confidence_degraded" in event_types
@@ -31,6 +32,7 @@ def test_replay_reaches_link_state_degradation_hint() -> None:
     assert result.cause_class_hint == "link_state_degradation"
     assert result.minimum_line_confidence < 0.35
     assert result.final_state["link_mode"] == "degraded"
+    assert result.final_state["line_confidence_status"] == "critical"
 
 
 def test_replay_sample_stride_changes_sample_count_only() -> None:
@@ -51,3 +53,4 @@ def test_replay_handles_timing_drift_or_stale_data_path() -> None:
     assert result.cause_class_hint == "timing_drift_or_stale_data"
     assert result.final_state["clock_bias_ms"] > scenario.initial_state.clock_bias_ms
     assert result.final_state["telemetry_freshness_s"] > scenario.initial_state.telemetry_freshness_s
+    assert result.final_state["line_confidence_status"] in {"degraded", "critical"}
