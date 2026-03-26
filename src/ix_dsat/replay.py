@@ -109,7 +109,7 @@ def _active_faults(scenario: Scenario, time_s: float) -> tuple[FaultInjection, .
         ends = fault.end_s is None or time_s <= fault.end_s
         if starts and ends:
             active.append(fault)
-    return tuple(sorted(active, key=lambda item: (item.start_s, item.fault_id))))
+    return tuple(sorted(active, key=lambda item: (item.start_s, item.fault_id)))
 
 
 def _sync_named_channels(state: dict[str, Any], channels: dict[str, Any]) -> None:
