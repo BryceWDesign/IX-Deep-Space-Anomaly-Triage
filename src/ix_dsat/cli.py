@@ -7,9 +7,11 @@ from dataclasses import asdict
 from ix_dsat.claims import SCOPE, SYSTEM_NAME, SYSTEM_SHORT_NAME
 from ix_dsat.errors import ScenarioValidationError
 from ix_dsat.gate import gate_actions
+from ix_dsat.ledger import build_evidence_ledger
 from ix_dsat.replay import replay_scenario
 from ix_dsat.scenario import load_scenario
 from ix_dsat.sentinel import scan_replay
+from ix_dsat.sync_queue import build_sync_queue
 from ix_dsat.triage import triage_replay
 from ix_dsat.version import __version__
 
@@ -58,13 +60,32 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run replay, health sentinel, triage, and safe-action gate for a scenario JSON file.",
     )
     parser.add_argument(
+        "--ledger-scan",
+        metavar="PATH",
+        help="Run the full DSAT chain and emit a blackbox evidence ledger summary.",
+    )
+    parser.add_argument(
+        "--sync-queue-scan",
+        metavar="PATH",
+        help="Run the full DSAT chain and emit a delay-tolerant sync queue summary.",
+    )
+    parser.add_argument(
         "--sample-every",
         metavar="N",
         type=int,
         default=1,
-        help="For replay, sentinel scan, triage scan, or gate scan, keep every Nth tick as a sample. Defaults to 1.",
+        help="For replay-derived scans, keep every Nth tick as a sample. Defaults to 1.",
     )
     return parser
+
+
+def _run_full_chain(path: str, sample_every: int):
+    scenario = load_scenario(path)
+    replay = replay_scenario(scenario, sample_every_n_ticks=sample_every)
+    sentinel = scan_replay(replay)
+    triage = triage_replay(replay, sentinel)
+    gate = gate_actions(scenario, replay, sentinel, triage)
+    return scenario, replay, sentinel, triage, gate
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -119,15 +140,39 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.gate_scan:
         try:
-            scenario = load_scenario(args.gate_scan)
-            result = replay_scenario(scenario, sample_every_n_ticks=args.sample_every)
-            sentinel = scan_replay(result)
-            triage = triage_replay(result, sentinel)
-            report = gate_actions(scenario, result, sentinel, triage)
+            scenario, replay, sentinel, triage, gate = _run_full_chain(
+                args.gate_scan, args.sample_every
+            )
         except ScenarioValidationError as exc:
             print(f"gate scan failed: {exc}")
             return 2
-        print(json.dumps(report.summary(), indent=2))
+        _ = scenario, replay, sentinel, triage
+        print(json.dumps(gate.summary(), indent=2))
+        return 0
+
+    if args.ledger_scan:
+        try:
+            scenario, replay, sentinel, triage, gate = _run_full_chain(
+                args.ledger_scan, args.sample_every
+            )
+            ledger = build_evidence_ledger(scenario, replay, sentinel, triage, gate)
+        except ScenarioValidationError as exc:
+            print(f"ledger scan failed: {exc}")
+            return 2
+        print(json.dumps(ledger.summary(), indent=2))
+        return 0
+
+    if args.sync_queue_scan:
+        try:
+            scenario, replay, sentinel, triage, gate = _run_full_chain(
+                args.sync_queue_scan, args.sample_every
+            )
+            ledger = build_evidence_ledger(scenario, replay, sentinel, triage, gate)
+            queue = build_sync_queue(ledger)
+        except ScenarioValidationError as exc:
+            print(f"sync queue scan failed: {exc}")
+            return 2
+        print(json.dumps(queue.summary(), indent=2))
         return 0
 
     payload = {
