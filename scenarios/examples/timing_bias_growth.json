@@ -1,0 +1,109 @@
+{
+  "schema_version": "1.0.0",
+  "scenario_id": "comm-timing-bias-growth-001",
+  "title": "Timing drift and stale-state growth during delayed-ground operations",
+  "description": "Deterministic seeded-fault scenario emphasizing timing drift and stale telemetry rather than primary packet-loss collapse. Expected behavior is a timing-drift-or-stale-data classification with recovery bounded until fresher state is available.",
+  "metadata": {
+    "domain": "deep_space_operations",
+    "subsystem": "comm_link_state_and_vehicle_state_trust",
+    "author": "Bryce Lovell",
+    "tags": [
+      "timing",
+      "stale_state",
+      "clock_bias",
+      "fault_injection",
+      "triage"
+    ]
+  },
+  "timeline": {
+    "duration_s": 150,
+    "tick_hz": 2
+  },
+  "initial_state": {
+    "comm_window_open": true,
+    "line_confidence": 0.94,
+    "vehicle_mode": "relay_tracking",
+    "telemetry_freshness_s": 0.6,
+    "pointing_error_deg": 0.08,
+    "clock_bias_ms": 3.0
+  },
+  "telemetry_channels": [
+    {
+      "name": "line_confidence",
+      "kind": "scalar",
+      "units": "ratio",
+      "nominal_min": 0.0,
+      "nominal_max": 1.0,
+      "initial_value": 0.94
+    },
+    {
+      "name": "clock_bias_ms",
+      "kind": "scalar",
+      "units": "ms",
+      "nominal_min": 0.0,
+      "nominal_max": 25.0,
+      "initial_value": 3.0
+    },
+    {
+      "name": "telemetry_freshness_s",
+      "kind": "scalar",
+      "units": "s",
+      "nominal_min": 0.0,
+      "nominal_max": 5.0,
+      "initial_value": 0.6
+    },
+    {
+      "name": "comm_window_open",
+      "kind": "boolean",
+      "units": "flag",
+      "nominal_min": 0.0,
+      "nominal_max": 1.0,
+      "initial_value": true
+    }
+  ],
+  "faults": [
+    {
+      "fault_id": "fault-101",
+      "fault_type": "clock_bias_growth",
+      "start_s": 30.0,
+      "end_s": 145.0,
+      "target": "clock_bias_ms",
+      "severity": 0.62,
+      "parameters": {
+        "bias_growth_ms_per_s": 6.5
+      }
+    },
+    {
+      "fault_id": "fault-102",
+      "fault_type": "sensor_stale",
+      "start_s": 55.0,
+      "end_s": 140.0,
+      "target": "telemetry_freshness_s",
+      "severity": 0.53,
+      "parameters": {
+        "age_growth_s_per_s": 1.2
+      }
+    }
+  ],
+  "expected": {
+    "cause_class": "timing_drift_or_stale_data",
+    "minimum_confidence_floor": 0.31,
+    "allowed_actions": [
+      "switch_to_low_rate_link",
+      "freeze_high_risk_recovery",
+      "await_fresh_state_estimate"
+    ],
+    "blocked_actions": [
+      "request_reacquisition",
+      "hold_current_pointing",
+      "shed_noncritical_traffic",
+      "enter_safe_comm_posture"
+    ],
+    "must_emit_events": [
+      "scenario_started",
+      "anomaly_detected",
+      "triage_emitted",
+      "confidence_degraded"
+    ]
+  }
+}
