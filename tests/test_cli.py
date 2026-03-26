@@ -65,3 +65,23 @@ def test_cli_gate_scan(capsys) -> None:
     assert '"scenario_id": "comm-link-pointing-drift-001"' in captured.out
     assert '"latch_state": "latched"' in captured.out
     assert '"primary_cause_class": "link_state_degradation"' in captured.out
+
+
+def test_cli_ledger_scan(capsys) -> None:
+    scenario_path = Path("scenarios/examples/link_state_pointing_drift.json")
+    rc = main(["--ledger-scan", str(scenario_path), "--sample-every", "10"])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert '"scenario_id": "comm-link-pointing-drift-001"' in captured.out
+    assert '"chain_head"' in captured.out
+    assert '"record_count"' in captured.out
+
+
+def test_cli_sync_queue_scan(capsys) -> None:
+    scenario_path = Path("scenarios/examples/link_state_pointing_drift.json")
+    rc = main(["--sync-queue-scan", str(scenario_path), "--sample-every", "10"])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert '"scenario_id": "comm-link-pointing-drift-001"' in captured.out
+    assert '"envelope_count"' in captured.out
+    assert '"manifest_hashes"' in captured.out
